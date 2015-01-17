@@ -6,6 +6,8 @@ initPiMonitor::usage = "initPiMonitor[<lcdlink>] initializes the \
 
 pmConfig::usage = "usage file for pmconfig"
 pmCheck::usage = "usage file for pmCheck"
+pmGenLogname::usage = "Usage file for pmGenLogname"
+pmStartMonitor::usage = "Usage file for pmStartMonitor"
 
 Begin["`Private`"]
 
@@ -50,11 +52,41 @@ Begin["`Private`"]
     (*  temps followed by cpu and case fan speeds *)
     s1 = ToString/@Round/@data[[2;;4]];
     s2 = ToString/@Round/@data[[5;;6]];
+    lcdlink`lcdClear[];
     lcdlink`lcdPuts[0,0,StringJoin["T:", Riffle[s1," "]]];
     lcdlink`lcdPuts[0,1,StringJoin["S:", Riffle[s2," "]]];
   ]
 
+(* ==pmGenLogname== *)
+(* Alter this function to create a string corresponding to your *)
+(*   logfile path *)
 
+  pmGenLogname[base_String:""]:=Module[{tmp},
+    (* If I haven't included an argument for base, assume the following *)
+    tmp = If[base == "",
+      Switch[First@StringSplit[$SystemID, "-"],
+        "Windows","C:\\Program Files (x86)\\SpeedFan\\SFLog<DATE>.csv",
+        "Linux", "/mnt/speedfan/SFLog<DATE>.csv",
+        _, $Failed],
+      base];
+    StringReplace[tmp, "<DATE>"->DateString[{"Year","Month","Day"}]]
+  ]
+
+(* ==pmStartMonitor== *)
+(* Creates a scheduled task to update the LCD screen *)
+  Clear[pmStartMonitor];
+  pmStartMonitor[file_String, time_Integer]:=Module[{t},
+    t = CreateScheduledTask[pmCheck[file],time, 
+      "EpilogFunction":>(
+        lcdlink`lcdClear[];
+        lcdlink`lcdPuts[0,0,"Finished"];)]; 
+    StartScheduledTask[t];
+    t (* Return the task so it can be stopped *)
+    ]
+
+    
+
+ 
 End[]
 EndPackage[]
 
