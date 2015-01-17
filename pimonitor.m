@@ -1,4 +1,10 @@
 BeginPackage["pimonitor`"]
+(* Public constants *)
+(* Default values can be overwritten *)
+
+$pmTempOK = 7;
+$pmTempWarning = 1;
+$pmTempThreshold = 55;
 
 initPiMonitor::usage = "initPiMonitor[<lcdlink>] initializes the \
   monitor.  <lcdlink> must be the file path to the Mathlink code that\
@@ -14,7 +20,7 @@ Begin["`Private`"]
 (* ==initPiMonitor== *)
 
   Clear[initPiMonitor];
-  initPiMonitor[panellink_:"/home/pi/mywiringPi/rpi-lcdlink/lcdlink"]:= 
+  initPiMonitor[logfile_String, panellink_:"/home/pi/mywiringPi/rpi-lcdlink/lcdlink"]:= 
     Module[{},
       <<"!gpio load i2c";
       link = Install[panellink];
@@ -24,6 +30,7 @@ Begin["`Private`"]
       lcdlink`lcdPuts[0,0,"PiMonitor"];
       lcdlink`lcdPuts[0,1," initialized."];
       Pause[1];
+      pmConfig[logfile];
     ]
 
 (* ==pmConfig== *)
@@ -46,13 +53,19 @@ Begin["`Private`"]
 (*  of the log to the LCD screen *)
 
   Clear[pmCheck];
-  pmCheck[log_String]:=Module[{data, s1,s2},
-    data = Import[log,"TSV"]//Last;
+  pmCheck[log_String]:=Module[{data,stream, s1,s2},
     (* My log file is tab separated line of seconds, core, case, gpu *)
     (*  temps followed by cpu and case fan speeds *)
+    (* use tail to grab the last line of the log file, which will save *)
+    (*  a little bit of time.*)
+    data = Import["!tail -n 1 "<>log,"TSV"][[1]];
     s1 = ToString/@Round/@data[[2;;4]];
     s2 = ToString/@Round/@data[[5;;6]];
     lcdlink`lcdClear[];
+    (* Change background color if Core temp is too high *)
+    If[data[[2]]>$pmTempThreshold,
+      lcdlink`lcdColor[$pmTempWarning];,
+      lcdlink`lcdColor[$pmTempOK];];
     lcdlink`lcdPuts[0,0,StringJoin["T:", Riffle[s1," "]]];
     lcdlink`lcdPuts[0,1,StringJoin["S:", Riffle[s2," "]]];
   ]
