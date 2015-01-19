@@ -2,9 +2,12 @@ BeginPackage["pimonitor`"]
 (* Public constants *)
 (* Default values can be overwritten *)
 
+$pmLogname = "";
 $pmTempOK = 7;
 $pmTempWarning = 1;
 $pmTempThreshold = 55;
+$pmTestdata = "";
+$pmFirstTimeThrough = True;
 
 initPiMonitor::usage = "initPiMonitor[<lcdlink>] initializes the \
   monitor.  <lcdlink> must be the file path to the Mathlink code that\
@@ -16,9 +19,9 @@ pmGenLogname::usage = "Usage file for pmGenLogname"
 pmStartMonitor::usage = "Usage file for pmStartMonitor"
 
 (* Will eventually be private - sandboxing here *)
+pmPlotMatrix::usage = "Probably should be private"
+pmMakeRow::usage = "Probably should be private"
 
-pmMakeRow[m_List,r_Integer]:=
-  Table[2^Range[4,0,-1].# &/@Take[m,{8r+1,8r+8},{5x+1,5x+5}],{x,0,3}];
 
 pmPlot[i_List]:=Join[pmMakeRow[i,0], pmMakeRow[i,1]];
 
@@ -34,10 +37,6 @@ pmClearPlot[j_:3]:=Module[{},
   Table[lcdlink`lcdPutc[i+4,j,1,32],{i,0,3}];
   ];
 
-pmPlotImage[data_List]:=1-Normal@SparseArray[
-  Flatten@MapIndexed[Table[{i,First@#2}->1,{i,#1}]&,
-  (Round@Rescale[#,{49,52},{16,1}]&/@data)],{16,20}];
-
 
 
 Begin["`Private`"]
@@ -52,6 +51,7 @@ Begin["`Private`"]
 
       (* Welcome screen *)
       lcdlink`lcdClear[];
+      lcdlink`lcdColor[7];
       lcdlink`lcdPuts[0,0,"PiMonitor"];
       lcdlink`lcdPuts[0,1," initialized."];
       Pause[1];
@@ -84,9 +84,14 @@ Begin["`Private`"]
     (* use tail to grab the last line of the log file, which will save *)
     (*  a little bit of time.*)
     data = Import["!tail -n 20 "<>log,"TSV"];
+    If[$pmTestdata == "", $pmTestdata = data;];
+    If[$pmFirstTimeThrough==True,
+      pmPutPlot[];
+      $pmFisrtTimeThrough=False;
+      ];
     s1 = ToString/@Round/@data[[-1,2;;4]];
     s2 = ToString/@Round/@data[[-1,5;;6]];
-    lcdlink`lcdClear[];
+    (*lcdlink`lcdClear[];*)
     (* Change background color if Core temp is too high *)
     If[data[[2]]>$pmTempThreshold,
       lcdlink`lcdColor[$pmTempWarning];,
@@ -94,8 +99,8 @@ Begin["`Private`"]
     lcdlink`lcdPuts[0,0,StringJoin["T:", Riffle[s1," "]]];
     lcdlink`lcdPuts[0,1,StringJoin["S:", Riffle[s2," "]]];
     (* Include Plot *)
-    pmDefinePlotChars@pmPlot@pmPlotImage[data[[1;;20,2]]];
-    pmPutPlot[];
+    pmDefinePlotChars@pmPlot@pmPlotMatrix[data[[1;;20,2]]];
+    (*pmPutPlot[];*)
 
   ]
 
@@ -119,16 +124,41 @@ Begin["`Private`"]
   Clear[pmStartMonitor];
   pmStartMonitor[file_String, time_Integer]:=Module[{t},
     t = CreateScheduledTask[pmCheck[file],{time, 20}, 
-      "EpilogFunction":>(
-        lcdlink`lcdClear[];
-        lcdlink`lcdPuts[0,0,"Finished"];)]; 
+      "EpilogFunction":>(pmTaskEpilog[0];)];
     StartScheduledTask[t];
     t (* Return the task so it can be stopped *)
-    ]
+    ];
 
-    
+(* ==pmPlotMatrix== *)
+(* Creates a matrix-style bar chart of temperatures *)
+  pmPlotMatrix[data_List]:=Module[{lo = 40,hi=60},
+    (* Prevent rescaling problems *)
+    lo = Min[data,lo];
+    hi = Max[data,hi];
+    (* Creates a matrix-style barchart with dimensions *)
+    (* amenable to lcdCharDef *)
+    1-Normal@SparseArray[
+      Flatten@MapIndexed[
+        Table[{i,First@#2}->1,{i,#1}]&, 
+          (Round@Rescale[#,{lo,hi},{16,1}]&/@data)],{16,20}]
+    ];
 
  
+(* ==pmMakeRow== *)
+(* Converts Binary to Decimal, chopping the matrix into LCDPiPlate *)
+(*  accessible chunks. *)
+  pmMakeRow[m_List,r_Integer]:=
+    Table[FromDigits[#,2]&/@Take[m,{8r+1,8r+8},{5x+1,5x+5}],{x,0,3}];
+
+(* ==pmTaskEpilog== *)
+(* Function to run when the Scheduled Task is complete *)
+  pmTaskEpilog[status_Integer:0]:=Module[{},
+    lcdlink`lcdClear[];
+    lcdlink`lcdColor[7];
+    $pmFirsttimeThrough=True;
+    lcdlink`lcdPuts[0,0,"Finished"];
+  ];
+    
 End[]
 EndPackage[]
 
