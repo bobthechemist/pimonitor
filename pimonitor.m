@@ -15,6 +15,31 @@ pmCheck::usage = "usage file for pmCheck"
 pmGenLogname::usage = "Usage file for pmGenLogname"
 pmStartMonitor::usage = "Usage file for pmStartMonitor"
 
+(* Will eventually be private - sandboxing here *)
+
+pmMakeRow[m_List,r_Integer]:=
+  Table[2^Range[4,0,-1].# &/@Take[m,{8r+1,8r+8},{5x+1,5x+5}],{x,0,3}];
+
+pmPlot[i_List]:=Join[pmMakeRow[i,0], pmMakeRow[i,1]];
+
+pmDefinePlotChars[l_]:=MapIndexed[lcdlink`lcdCharDef[First@#2-1, #1] &,l]
+
+pmPutPlot[j_:3]:= Module[{},
+  Table[lcdlink`lcdPutc[i+4 j,0,i],{i,0,3}];
+  Table[lcdlink`lcdPutc[i+4 j, 1, i+4],{i,0,3}];
+  ];
+
+pmClearPlot[j_:3]:=Module[{},
+  Table[lcdlink`lcdPutc[i+4j,0,32],{i,0,3}];
+  Table[lcdlink`lcdPutc[i+4,j,1,32],{i,0,3}];
+  ];
+
+pmPlotImage[data_List]:=1-Normal@SparseArray[
+  Flatten@MapIndexed[Table[{i,First@#2}->1,{i,#1}]&,
+  (Round@Rescale[#,{49,52},{16,1}]&/@data)],{16,20}];
+
+
+
 Begin["`Private`"]
 
 (* ==initPiMonitor== *)
@@ -58,9 +83,9 @@ Begin["`Private`"]
     (*  temps followed by cpu and case fan speeds *)
     (* use tail to grab the last line of the log file, which will save *)
     (*  a little bit of time.*)
-    data = Import["!tail -n 1 "<>log,"TSV"][[1]];
-    s1 = ToString/@Round/@data[[2;;4]];
-    s2 = ToString/@Round/@data[[5;;6]];
+    data = Import["!tail -n 20 "<>log,"TSV"];
+    s1 = ToString/@Round/@data[[-1,2;;4]];
+    s2 = ToString/@Round/@data[[-1,5;;6]];
     lcdlink`lcdClear[];
     (* Change background color if Core temp is too high *)
     If[data[[2]]>$pmTempThreshold,
@@ -68,6 +93,10 @@ Begin["`Private`"]
       lcdlink`lcdColor[$pmTempOK];];
     lcdlink`lcdPuts[0,0,StringJoin["T:", Riffle[s1," "]]];
     lcdlink`lcdPuts[0,1,StringJoin["S:", Riffle[s2," "]]];
+    (* Include Plot *)
+    pmDefinePlotChars@pmPlot@pmPlotImage[data[[1;;20,2]]];
+    pmPutPlot[];
+
   ]
 
 (* ==pmGenLogname== *)
@@ -89,7 +118,7 @@ Begin["`Private`"]
 (* Creates a scheduled task to update the LCD screen *)
   Clear[pmStartMonitor];
   pmStartMonitor[file_String, time_Integer]:=Module[{t},
-    t = CreateScheduledTask[pmCheck[file],time, 
+    t = CreateScheduledTask[pmCheck[file],{time, 20}, 
       "EpilogFunction":>(
         lcdlink`lcdClear[];
         lcdlink`lcdPuts[0,0,"Finished"];)]; 
