@@ -8,6 +8,8 @@ $pmTempWarning = 1;
 $pmTempThreshold = 55;
 $pmTestdata = "";
 $pmFirstTimeThrough = True;
+$pmlcdlink = "/home/pi/mywiringPi/rpi-lcdlink/lcdlink";
+$pmTask = "";
 
 initPiMonitor::usage = "initPiMonitor[<lcdlink>] initializes the \
   monitor.  <lcdlink> must be the file path to the Mathlink code that\
@@ -17,34 +19,14 @@ pmConfig::usage = "usage file for pmconfig"
 pmCheck::usage = "usage file for pmCheck"
 pmGenLogname::usage = "Usage file for pmGenLogname"
 pmStartMonitor::usage = "Usage file for pmStartMonitor"
-
-(* Will eventually be private - sandboxing here *)
-pmPlotMatrix::usage = "Probably should be private"
-pmMakeRow::usage = "Probably should be private"
-
-
-pmPlot[i_List]:=Join[pmMakeRow[i,0], pmMakeRow[i,1]];
-
-pmDefinePlotChars[l_]:=MapIndexed[lcdlink`lcdCharDef[First@#2-1, #1] &,l]
-
-pmPutPlot[j_:3]:= Module[{},
-  Table[lcdlink`lcdPutc[i+4 j,0,i],{i,0,3}];
-  Table[lcdlink`lcdPutc[i+4 j, 1, i+4],{i,0,3}];
-  ];
-
-pmClearPlot[j_:3]:=Module[{},
-  Table[lcdlink`lcdPutc[i+4j,0,32],{i,0,3}];
-  Table[lcdlink`lcdPutc[i+4,j,1,32],{i,0,3}];
-  ];
-
-
+pmAbort::usage = "Aborts the current scheduled task"
 
 Begin["`Private`"]
 
 (* ==initPiMonitor== *)
 
   Clear[initPiMonitor];
-  initPiMonitor[logfile_String, panellink_:"/home/pi/mywiringPi/rpi-lcdlink/lcdlink"]:= 
+  initPiMonitor[panellink_:$pmlcdlink]:= 
     Module[{},
       <<"!gpio load i2c";
       link = Install[panellink];
@@ -55,7 +37,7 @@ Begin["`Private`"]
       lcdlink`lcdPuts[0,0,"PiMonitor"];
       lcdlink`lcdPuts[0,1," initialized."];
       Pause[1];
-      pmConfig[logfile];
+      pmConfig[pmGenLogname[]];
     ]
 
 (* ==pmConfig== *)
@@ -70,6 +52,7 @@ Begin["`Private`"]
       lcdlink`lcdPuts[0,1,"  not found."];,
       lcdlink`lcdClear[];
       lcdlink`lcdPuts[0,0,"Log found."];
+      $pmLogname = pmGenLogname[];
     ]
   ]
 
@@ -78,7 +61,7 @@ Begin["`Private`"]
 (*  of the log to the LCD screen *)
 
   Clear[pmCheck];
-  pmCheck[log_String]:=Module[{data,stream, s1,s2},
+  pmCheck[log_String:$pmLogname]:=Module[{data,stream, s1,s2},
     (* My log file is tab separated line of seconds, core, case, gpu *)
     (*  temps followed by cpu and case fan speeds *)
     (* use tail to grab the last line of the log file, which will save *)
@@ -86,6 +69,7 @@ Begin["`Private`"]
     data = Import["!tail -n 20 "<>log,"TSV"];
     If[$pmTestdata == "", $pmTestdata = data;];
     If[$pmFirstTimeThrough==True,
+      lcdlink`lcdClear[];
       pmPutPlot[];
       $pmFisrtTimeThrough=False;
       ];
@@ -98,7 +82,8 @@ Begin["`Private`"]
       lcdlink`lcdColor[$pmTempOK];];
     lcdlink`lcdPuts[0,0,StringJoin["T:", Riffle[s1," "]]];
     lcdlink`lcdPuts[0,1,StringJoin["S:", Riffle[s2," "]]];
-    (* Include Plot *)
+    (* Include Plot. If the log just rotated, then it's possible that *)
+    (*  there are fewer than 20 lines in `data`.  Need to handle this. *)
     pmDefinePlotChars@pmPlot@pmPlotMatrix[data[[1;;20,2]]];
     (*pmPutPlot[];*)
 
@@ -122,12 +107,22 @@ Begin["`Private`"]
 (* ==pmStartMonitor== *)
 (* Creates a scheduled task to update the LCD screen *)
   Clear[pmStartMonitor];
-  pmStartMonitor[file_String, time_Integer]:=Module[{t},
-    t = CreateScheduledTask[pmCheck[file],{time, 20}, 
+  pmStartMonitor[time_Integer:5]:=Module[{t},
+    $pmTask = CreateScheduledTask[pmCheck[$pmLogname],{time, 60}, 
       "EpilogFunction":>(pmTaskEpilog[0];)];
-    StartScheduledTask[t];
-    t (* Return the task so it can be stopped *)
+    StartScheduledTask[$pmTask];
     ];
+
+(* ==pmAbort== *)
+(* Stops the scheduled task, if it is running *)
+  Clear[pmAbort];
+  pmAbort[]:=Module[{},
+    If[Head[$pmTask]==ScheduledTaskObject,
+      StopScheduledTask[$pmTask];
+      $pmTask = "";
+    ];
+    pmTaskEpilog[1];
+    ]
 
 (* ==pmPlotMatrix== *)
 (* Creates a matrix-style bar chart of temperatures *)
@@ -157,8 +152,33 @@ Begin["`Private`"]
     lcdlink`lcdColor[7];
     $pmFirsttimeThrough=True;
     lcdlink`lcdPuts[0,0,"Finished"];
+    If[status==1,
+      lcdlink`lcdPuts[0,1,"(Aborted)"];
+    ];
   ];
     
+(* ==pmPlot== *)
+(* Creates a matrix containing the character definitions for a plot *)
+  pmPlot[i_List]:=Join[pmMakeRow[i,0], pmMakeRow[i,1]];
+
+(* ==pmDefinePlotChars== *)
+(* Sends output of `pmPlot` to the custom character slots of the LCD *)
+  pmDefinePlotChars[l_]:=MapIndexed[lcdlink`lcdCharDef[First@#2-1, #1] &,l]
+
+(* ==pmPutPlot *)
+(* Places the custom defined characters in one of the quartiles of LCD *)
+  pmPutPlot[j_:3]:= Module[{},
+    Table[lcdlink`lcdPutc[i+4 j,0,i],{i,0,3}];
+    Table[lcdlink`lcdPutc[i+4 j, 1, i+4],{i,0,3}];
+    ];
+
+(* ==pmClearPlot== *)
+(* Clears a quartile of the LCD screen *)
+  pmClearPlot[j_:3]:=Module[{},
+    Table[lcdlink`lcdPutc[i+4j,0,32],{i,0,3}];
+    Table[lcdlink`lcdPutc[i+4,j,1,32],{i,0,3}];
+    ];
+
 End[]
 EndPackage[]
 

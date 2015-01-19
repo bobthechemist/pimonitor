@@ -17,23 +17,17 @@ PC through a mounted share.  I use an earlier project of mine (rpi-lcdlink)
 to interface with the LCDPiPlate through _Mathematica_. 
 
 ##What it does so far##
-After initializing, the program starts a `ScheduledTask` which grabs the
-last line of the SpeedFan log every `n` seconds.  The log reports the time
-along with the core, case and GPU temps, followed by the cpu and case fan
-speeds.  This information is directed to the LCDPiPlate.  Since I have an 
-RGB version of the display, the temperature check routing (`pmCheck`) 
-checks to see if the CPU temp exceeds a user-defined threshold and, if so,
-changes the screen color (also user defined).
+ - Once the the appropriate path is set for $pmlcdlink, Load the package with `<<pimonitor\``
+ - Initialize the monitor with `InitPiMonitor[]`
+ - Start the monitor with `pmStartmonitor[]` which will provide the default update interval of 5 seconds.
+ - If the CPU temp exceeds $pmThreshold, the LCD screen will change colors.
+ - Enjoy monitoring for a whole 5 minutes(*)!
+ - The basic operation outlined above generates five-minute monitoring routine during which the LCD display will report the temperatures, fan speeds and provide a plot of how the CPU temperature has varied over the last minute. When finished, the LCD screen will report as much.  It is possible to end the monitoring prematurely with the function `pmAbort[]` which will inform you through the LCD screen that the task has finished through an abort signal.
 
-##What I want it to do##
- - More automation.  Presently startup requires:
-    <<pimonitor`
-    initPiMonitor[pmGenLogname[]];
-    pmStartMonitor[pmGenLogname[],5];
-    (* when done *)
-    StopScheduledTask[First@ScheduledTasks[]];
+##What's next##
+ - Process management. I've noticed that orphaned WolframLinks and tails linger after monitoring is complete.  I haven't done much error checking in this code at all, and these two problems should be a high priority.
+ - Enhanced configuration: what variable gets plotted.  Also included in this request is a customizeable or smart range determination routine for the plot.
+ - Button access.  Leverage the 5-button interface of the LCDPiPlate to provide additional features (abort, start, switch plot, etc).
+ - Flexibility - Generalize to allow for easy modifications, such as log file format.
 
- - Make a graph, cpu temp vs. time, for example
-
- - Take advantage of the buttons for user input.  
  
